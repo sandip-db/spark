@@ -26,11 +26,12 @@ import com.sun.xml.txw2.output.IndentingXMLStreamWriter
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.io.{LongWritable, Text}
 import org.apache.hadoop.io.compress.CompressionCodec
-
 import org.apache.spark.SparkContext
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.util.CompressionCodecs
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.xml.{XmlInputFormat, XmlOptions}
 import org.apache.spark.sql.execution.datasources.xml.parsers.StaxXmlGenerator
 
@@ -132,7 +133,7 @@ private[xml] object XmlFile {
               StaxXmlGenerator(
                 rowSchema,
                 indentingXmlWriter,
-                options)(iter.next())
+                options)(InternalRow.fromSeq(iter.next().toSeq))
               indentingXmlWriter.flush()
               writer.toString
             }

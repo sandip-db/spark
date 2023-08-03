@@ -28,6 +28,7 @@ import scala.util.control.Exception._
 
 import org.apache.spark.sql.execution.datasources.xml.XmlOptions
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
 
 /**
  * Utility functions for type casting
@@ -66,7 +67,7 @@ private[xml] object TypeCast {
           Decimal(new BigDecimal(datum.replaceAll(",", "")), dt.precision, dt.scale)
         case _: TimestampType => parseXmlTimestamp(datum, options)
         case _: DateType => parseXmlDate(datum, options)
-        case _: StringType => datum
+        case _: StringType => UTF8String.fromString(datum)
         case _ => throw new IllegalArgumentException(s"Unsupported type: ${castType.typeName}")
       }
     }
@@ -86,7 +87,10 @@ private[xml] object TypeCast {
     DateTimeFormatter.ISO_DATE
   )
 
-  private def parseXmlDate(value: String, options: XmlOptions): Date = {
+  private def parseXmlDate(value: String, options: XmlOptions): Int = {
+    options.dateFormatter.parse(value)
+  }
+  private def parseXmlDateOld(value: String, options: XmlOptions): Date = {
     val formatters = options.dateFormat.map(DateTimeFormatter.ofPattern).
       map(supportedXmlDateFormatters :+ _).getOrElse(supportedXmlDateFormatters)
     formatters.foreach { format =>
@@ -116,7 +120,10 @@ private[xml] object TypeCast {
     DateTimeFormatter.ISO_INSTANT
   )
 
-  private def parseXmlTimestamp(value: String, options: XmlOptions): Timestamp = {
+  private def parseXmlTimestamp(value: String, options: XmlOptions): Long = {
+    options.timestampFormatter.parse(value)
+  }
+  private def parseXmlTimestampOld(value: String, options: XmlOptions): Timestamp = {
     supportedXmlTimestampFormatters.foreach { format =>
       try {
         return Timestamp.from(Instant.from(format.parse(value)))
@@ -137,6 +144,7 @@ private[xml] object TypeCast {
         DateTimeFormatter.ofPattern(formatString)
       } else {
         DateTimeFormatter.ofPattern(formatString).withZone(options.timezone.map(ZoneId.of).orNull)
+        // DateTimeFormatter.ofPattern(formatString).withZone(options.zoneId)
       }
       try {
         return Timestamp.from(Instant.from(format.parse(value)))
@@ -227,20 +235,14 @@ private[xml] object TypeCast {
 
   private[xml] def isTimestamp(value: String, options: XmlOptions): Boolean = {
     try {
-      parseXmlTimestamp(value, options)
-      true
+      options.timestampFormatter.parseOptional(value).isDefined
     } catch {
       case _: IllegalArgumentException => false
     }
   }
 
   private[xml] def isDate(value: String, options: XmlOptions): Boolean = {
-    try {
-      parseXmlDate(value, options)
-      true
-    } catch {
-      case _: IllegalArgumentException => false
-    }
+    (allCatch opt options.dateFormatter.parse(value)).isDefined
   }
 
   private[xml] def signSafeToLong(value: String, options: XmlOptions): Long = {

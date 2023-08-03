@@ -17,20 +17,39 @@
 package org.apache.spark.sql.execution.datasources.xml
 
 import java.nio.charset.StandardCharsets
+import java.time.ZoneId
+import java.util.Locale
+import javax.xml.stream.XMLInputFactory
 
-import org.apache.spark.sql.catalyst.util.{ParseMode, PermissiveMode}
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.{DataSourceOptions, FileSourceOptions}
+import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, CompressionCodecs, DateFormatter, DateTimeUtils, ParseMode, PermissiveMode, TimestampFormatter}
+import org.apache.spark.sql.catalyst.util.LegacyDateFormats.FAST_DATE_FORMAT
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Options for the XML data source.
  */
-private[xml] class XmlOptions(
-    @transient private val parameters: Map[String, String])
-  extends Serializable {
+private[sql] class XmlOptions(
+    @transient val parameters: CaseInsensitiveMap[String],
+    defaultTimeZoneId: String,
+    defaultColumnNameOfCorruptRecord: String)
+  extends FileSourceOptions(parameters) with Logging {
 
-  def this() = this(Map.empty)
+  import XmlOptions._
 
-  val charset = parameters.getOrElse("charset", XmlOptions.DEFAULT_CHARSET)
+  def this(
+    parameters: Map[String, String] = Map.empty,
+    defaultTimeZoneId: String = SQLConf.get.sessionLocalTimeZone,
+    defaultColumnNameOfCorruptRecord: String = "") = {
+    this(
+      CaseInsensitiveMap(parameters),
+      defaultTimeZoneId,
+      defaultColumnNameOfCorruptRecord)
+  }
+
   val codec = parameters.get("compression").orElse(parameters.get("codec")).orNull
+  val compressionCodec = parameters.get(COMPRESSION).map(CompressionCodecs.getCodecClassName)
   val rowTag = parameters.getOrElse("rowTag", XmlOptions.DEFAULT_ROW_TAG)
   require(rowTag.nonEmpty, "'rowTag' option should not be empty string.")
   require(!rowTag.startsWith("<") && !rowTag.endsWith(">"),
@@ -67,10 +86,40 @@ private[xml] class XmlOptions(
   val ignoreNamespace = parameters.get("ignoreNamespace").map(_.toBoolean).getOrElse(false)
   val timestampFormat = parameters.get("timestampFormat")
   val timezone = parameters.get("timezone")
+
+  val zoneId: ZoneId = DateTimeUtils.getZoneId(
+    parameters.getOrElse(DateTimeUtils.TIMEZONE_OPTION,
+      parameters.getOrElse(TIME_ZONE, defaultTimeZoneId)))
+
+  // A language tag in IETF BCP 47 format
+  val locale: Locale = parameters.get(LOCALE).map(Locale.forLanguageTag).getOrElse(Locale.US)
+
   val dateFormat = parameters.get("dateFormat")
+
+  // sandip : change true to false
+  val multiLine = parameters.get(MULTI_LINE).map(_.toBoolean).getOrElse(true)
+  val charset = parameters.getOrElse(ENCODING,
+    parameters.getOrElse(CHARSET, XmlOptions.DEFAULT_CHARSET))
+
+  def buildXmlFactory(): XMLInputFactory = {
+    XMLInputFactory.newInstance()
+  }
+
+  val timestampFormatter = TimestampFormatter(
+    timestampFormat,
+    zoneId,
+    locale,
+    legacyFormat = FAST_DATE_FORMAT,
+    isParsing = true)
+
+  val dateFormatter = DateFormatter(
+    dateFormat,
+    locale,
+    legacyFormat = FAST_DATE_FORMAT,
+    isParsing = true)
 }
 
-private[xml] object XmlOptions {
+private[sql] object XmlOptions extends DataSourceOptions {
   val DEFAULT_ATTRIBUTE_PREFIX = "_"
   val DEFAULT_VALUE_TAG = "_VALUE"
   val DEFAULT_ROW_TAG = "ROW"
@@ -80,6 +129,19 @@ private[xml] object XmlOptions {
   val DEFAULT_CHARSET: String = StandardCharsets.UTF_8.name
   val DEFAULT_NULL_VALUE: String = null
   val DEFAULT_WILDCARD_COL_NAME = "xs_any"
+  val LOCALE = newOption("locale")
+  val COMPRESSION = newOption("compression")
+  val MULTI_LINE = newOption("multiLine")
+  // Options with alternative
+  val ENCODING = "encoding"
+  val CHARSET = "charset"
+  newOption(ENCODING, CHARSET)
+  val TIME_ZONE = "timezone"
+  newOption(DateTimeUtils.TIMEZONE_OPTION, TIME_ZONE)
 
-  def apply(parameters: Map[String, String]): XmlOptions = new XmlOptions(parameters)
+  def apply(parameters: Map[String, String]): XmlOptions =
+    new XmlOptions(parameters, SQLConf.get.sessionLocalTimeZone)
+
+  def apply(): XmlOptions =
+    new XmlOptions(Map.empty, SQLConf.get.sessionLocalTimeZone)
 }

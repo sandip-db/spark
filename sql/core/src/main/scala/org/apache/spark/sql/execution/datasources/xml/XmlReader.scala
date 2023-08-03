@@ -19,7 +19,6 @@ package org.apache.spark.sql.execution.datasources.xml
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, Dataset, SparkSession, SQLContext}
 import org.apache.spark.sql.catalyst.util.FailFastMode
-import org.apache.spark.sql.execution.datasources.xml.util.XmlFile
 import org.apache.spark.sql.types.StructType
 
 /**
@@ -140,17 +139,7 @@ class XmlReader(private var schema: StructType,
    * @return XML parsed as a DataFrame
    */
   def xmlFile(spark: SparkSession, path: String): DataFrame = {
-    // We need the `charset` and `rowTag` before creating the relation.
-    val (charset, rowTag) = {
-      val options = XmlOptions(parameters.toMap)
-      (options.charset, options.rowTag)
-    }
-    val relation = XmlRelation(
-      () => XmlFile.withCharset(spark.sparkContext, path, charset, rowTag),
-      Some(path),
-      parameters.toMap,
-      schema)(spark.sqlContext)
-    spark.baseRelationToDataFrame(relation)
+    spark.read.options(parameters).xml(path)
   }
 
   /**
@@ -159,7 +148,7 @@ class XmlReader(private var schema: StructType,
    * @return XML parsed as a DataFrame
    */
   def xmlDataset(spark: SparkSession, ds: Dataset[String]): DataFrame = {
-    xmlRdd(spark, ds.rdd)
+    spark.read.options(parameters).xml(ds)
   }
 
   /**
@@ -168,38 +157,18 @@ class XmlReader(private var schema: StructType,
    * @return XML parsed as a DataFrame
    */
   def xmlRdd(spark: SparkSession, xmlRDD: RDD[String]): DataFrame = {
-    val relation = XmlRelation(
-      () => xmlRDD,
-      None,
-      parameters.toMap,
-      schema)(spark.sqlContext)
-    spark.baseRelationToDataFrame(relation)
+    spark.read.options(parameters).xml(xmlRDD)
   }
 
   /** Returns a Schema RDD for the given XML path. */
   @deprecated("Use xmlFile(SparkSession, ...)", "0.5.0")
   def xmlFile(sqlContext: SQLContext, path: String): DataFrame = {
-    // We need the `charset` and `rowTag` before creating the relation.
-    val (charset, rowTag) = {
-      val options = XmlOptions(parameters.toMap)
-      (options.charset, options.rowTag)
-    }
-    val relation = XmlRelation(
-      () => XmlFile.withCharset(sqlContext.sparkContext, path, charset, rowTag),
-      Some(path),
-      parameters.toMap,
-      schema)(sqlContext)
-    sqlContext.baseRelationToDataFrame(relation)
+    sqlContext.sparkSession.read.options(parameters).xml(path)
   }
 
   @deprecated("Use xmlRdd(SparkSession, ...)", "0.5.0")
   def xmlRdd(sqlContext: SQLContext, xmlRDD: RDD[String]): DataFrame = {
-    val relation = XmlRelation(
-      () => xmlRDD,
-      None,
-      parameters.toMap,
-      schema)(sqlContext)
-    sqlContext.baseRelationToDataFrame(relation)
+    sqlContext.sparkSession.read.options(parameters).xml(xmlRDD)
   }
 
 }

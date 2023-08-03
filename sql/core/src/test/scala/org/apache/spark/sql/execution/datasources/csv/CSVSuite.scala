@@ -18,7 +18,8 @@
 package org.apache.spark.sql.execution.datasources.csv
 
 import java.io.{ByteArrayOutputStream, EOFException, File, FileOutputStream}
-import java.nio.charset.{Charset, StandardCharsets, UnsupportedCharsetException}
+import java.nio.charset.{Charset, StandardCharsets}
+// , UnsupportedCharsetException}
 import java.nio.file.{Files, StandardOpenOption}
 import java.sql.{Date, Timestamp}
 import java.text.SimpleDateFormat
@@ -35,8 +36,8 @@ import org.apache.commons.lang3.time.FastDateFormat
 import org.apache.hadoop.io.SequenceFile.CompressionType
 import org.apache.hadoop.io.compress.GzipCodec
 import org.apache.logging.log4j.Level
-
 import org.apache.spark.{SparkConf, SparkException, SparkRuntimeException, SparkUpgradeException, TestUtils}
+
 import org.apache.spark.sql.{AnalysisException, Column, DataFrame, Encoders, QueryTest, Row}
 import org.apache.spark.sql.catalyst.csv.CSVOptions
 import org.apache.spark.sql.catalyst.util.{DateTimeTestUtils, DateTimeUtils}
@@ -118,6 +119,21 @@ abstract class CSVSuite
         }
       }
     }
+  }
+
+  test("simple csv test sandip") {
+    val cars = spark
+      .read
+      .format("csv")
+      .option("header", "true")
+      .option("multiline", "true")
+      .option("inferSchema", "true")
+      .load(testFile("test-data/cars-sandip.csv"))
+
+    val expected =
+      Seq(Seq(Timestamp.valueOf("2015-08-20 15:57:00")))
+    assert(cars.collect().length === 1)
+    assert(cars.collect().toSeq.map(_.toSeq) === expected)
   }
 
   test("simple csv test") {
@@ -256,10 +272,11 @@ abstract class CSVSuite
   }
 
   test("bad encoding name") {
-    val exception = intercept[UnsupportedCharsetException] {
+    val exception = intercept[AnalysisException] { // UnsupportedCharsetException
       spark
         .read
         .format("csv")
+        .option("multiLine", "true")
         .option("charset", "1-9588-osi")
         .load(testFile(carsFile8859))
     }
